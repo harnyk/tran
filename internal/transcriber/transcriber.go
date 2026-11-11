@@ -269,6 +269,10 @@ func (t *Transcriber) TranscribeMeetingDualChannel(ctx context.Context, m *meeti
 
 	meetingName := filepath.Base(m.Path)
 
+	if !m.HasDualSources() {
+		return fmt.Errorf("dual-channel mode needs source/mic.mp3 and source/sys.mp3; a single recording cannot be split into Us/Them — run without --dual-channel")
+	}
+
 	if _, err := os.Stat(m.TranscriptMicPath()); os.IsNotExist(err) {
 		if err := t.TranscribeChannel(ctx, m.MicMP3Path(), apiLanguage, m.TranscriptMicPath(), "mic", meetingName); err != nil {
 			return fmt.Errorf("mic channel: %w", err)

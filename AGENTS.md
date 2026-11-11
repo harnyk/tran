@@ -19,9 +19,15 @@ Repo notes for coding agents working in this project.
   - `source/mic.mp3`: microphone channel
   - `source/sys.mp3`: system audio channel
 
+- `tran init`
+  Creates `source/`, `mix/`, `transcript/` in the current directory (idempotent, no timestamp).
+  For recordings made outside `tran rec`: user drops one audio/video file into `source/`.
+
 - `tran soundmix`
   Reads `source/mic.mp3` and `source/sys.mp3`, applies optional per-channel gain,
   mixes them together, and writes segmented MP3 chunks to `mix/record-%03d.mp3`.
+  If both are not present, uses the audio of the single media file in `source/`
+  (`MeetingDir.SingleSource`); volume flags are ignored there.
 
 - `tran transcript`
   Default mode transcribes `mix/record-*.mp3` and writes `transcript/transcript.txt`.
@@ -79,6 +85,8 @@ internal/transcriber/ meeting transcription orchestration, dual-channel merge lo
 ## Important implementation details
 
 - `meeting.Detect()` checks for `source/`, not a top-level media file.
+- Source selection (`converter.buildInputArgs`): `mic.mp3` + `sys.mp3` win; otherwise exactly one
+  media file in `source/` is required. `--dual-channel` fails fast without `mic.mp3` + `sys.mp3`.
 - Mixed-audio chunking uses 192 kbps mono MP3 segments with `converter.SegmentTime == 963`.
 - Cloud providers (`openai`, `groq`) re-encode files over the upload limit to a temporary 64 kbps / 16 kHz mono MP3 before upload.
 - `STT_PROVIDER` has no default; `stt.NewProvider` fails fast when running `transcript` or `process` (transcription step) if unset or unknown. `rec`, `soundmix`, and `devices list` do not require STT config.

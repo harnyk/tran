@@ -30,6 +30,7 @@ var soundmixCmd = &cobra.Command{
 
 		micDB, _ := cmd.Flags().GetFloat64("mic-volume")
 		sysDB, _ := cmd.Flags().GetFloat64("sys-volume")
+		warnVolumeIgnored(m, micDB, sysDB)
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -60,4 +61,12 @@ func init() {
 	soundmixCmd.Flags().Float64("mic-volume", 0, "microphone volume adjustment in dB (e.g. 3 or -6)")
 	soundmixCmd.Flags().Float64("sys-volume", 0, "system audio volume adjustment in dB (e.g. 3 or -6)")
 	rootCmd.AddCommand(soundmixCmd)
+}
+
+// warnVolumeIgnored tells the user that per-channel volume flags have no effect
+// when the meeting has a single recording instead of mic.mp3 + sys.mp3.
+func warnVolumeIgnored(m *meeting.MeetingDir, micDB, sysDB float64) {
+	if (micDB != 0 || sysDB != 0) && !m.HasDualSources() {
+		fmt.Println("Note: --mic-volume/--sys-volume are ignored for a single-source recording")
+	}
 }

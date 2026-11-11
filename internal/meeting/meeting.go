@@ -101,3 +101,63 @@ func slugify(name string) string {
 	slug = strings.Trim(slug, "-")
 	return slug
 }
+
+// Init prepares an existing directory as a meeting directory by creating
+// source/, mix/, and transcript/ inside it. Existing content is left untouched.
+func Init(dir string) (*MeetingDir, error) {
+	for _, sub := range []string{"source", "mix", "transcript"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
+			return nil, fmt.Errorf("init meeting dir: %w", err)
+		}
+	}
+	return &MeetingDir{Path: dir, Name: filepath.Base(dir)}, nil
+}
+
+// mediaExts lists file extensions accepted as a single audio/video source.
+var mediaExts = map[string]bool{
+	".mp4": true, ".mkv": true, ".mov": true, ".webm": true, ".avi": true,
+	".mp3": true, ".m4a": true, ".wav": true, ".ogg": true, ".opus": true,
+	".flac": true, ".aac": true,
+}
+
+// HasDualSources reports whether both source/mic.mp3 and source/sys.mp3 exist.
+func (m *MeetingDir) HasDualSources() bool {
+	return fileExists(m.MicMP3Path()) && fileExists(m.SysMP3Path())
+}
+
+// SingleSource returns the only audio/video file in source/.
+// It fails if source/ contains no media files or more than one.
+func (m *MeetingDir) SingleSource() (string, error) {
+	entries, err := os.ReadDir(m.SourceDir())
+	if err != nil {
+		return "", fmt.Errorf("read source dir: %w", err)
+	}
+	var found []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if mediaExts[strings.ToLower(filepath.Ext(name))] {
+			found = append(found, filepath.Join(m.SourceDir(), name))
+		}
+	}
+	sort.Strings(found)
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("no audio/video file found in %s — put a recording there, or provide mic.mp3 + sys.mp3", m.SourceDir())
+	case 1:
+		return found[0], nil
+	default:
+		names := make([]string, len(found))
+		for i, f := range found {
+			names[i] = filepath.Base(f)
+		}
+		return "", fmt.Errorf("multiple audio/video files in %s (%s) — keep exactly one, or provide mic.mp3 + sys.mp3", m.SourceDir(), strings.Join(names, ", "))
+	}
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
