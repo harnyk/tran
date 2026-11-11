@@ -56,6 +56,7 @@ OPENAI_API_KEY=sk-...
     transcript.txt
     transcript_mic.yaml   dual-channel intermediate
     transcript_sys.yaml   dual-channel intermediate
+    chunks/               per-chunk results cache (resume after interruption)
 ```
 
 `mix/` is only used by the mixed pipeline. The dual-channel pipeline reads directly
@@ -119,6 +120,13 @@ With `--dual-channel` / `-d`, skips `mix/` entirely: `source/mic.mp3` and
 `source/sys.mp3` are segmented separately, transcribed independently, written to
 `transcript/transcript_mic.yaml` and `transcript/transcript_sys.yaml`, then
 merged into `transcript/transcript.txt` with `Us` / `Them` speaker labels.
+
+Each chunk's result is saved right away to `transcript/chunks/`
+(`record-NNN.yaml`, or `mic-NNN.yaml` / `sys-NNN.yaml` in dual-channel mode).
+If a run is interrupted (network error, rate limit, Ctrl+C), the next run reuses
+finished chunks and only transcribes the rest. A cached chunk is redone when the
+provider, language, or source chunk size changes. `--fresh` clears the cache
+and the per-channel YAML files and transcribes everything again.
 
 Files larger than 25 MB are automatically re-compressed to a 64 kbps / 16 kHz
 mono temp file before upload.

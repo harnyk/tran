@@ -45,7 +45,7 @@ func TestTranscribeMeetingWithFakeProvider(t *testing.T) {
 
 func TestFormatElapsed(t *testing.T) {
 	tests := map[time.Duration]string{
-		41*time.Second + 349*time.Millisecond: "41.3s",
+		41*time.Second + 349*time.Millisecond:                "41.3s",
 		2*time.Minute + 4*time.Second + 600*time.Millisecond: "2m5s",
 	}
 	for in, want := range tests {

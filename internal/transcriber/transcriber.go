@@ -56,7 +56,8 @@ func (t *Transcriber) TranscribeMeeting(ctx context.Context, m *meeting.MeetingD
 	fmt.Fprintf(&sb, "---\nmeeting: %s\n---\n\n", filepath.Base(m.Path))
 	for i, path := range mp3s {
 		chunkNum := i + 1
-		result, err := t.transcribeChunk(ctx, path, apiLanguage, "", chunkNum, len(mp3s))
+		cachePath := filepath.Join(m.ChunkCacheDir(), strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))+".yaml")
+		result, err := t.transcribeChunk(ctx, path, apiLanguage, "", cachePath, chunkNum, len(mp3s))
 		if err != nil {
 			return fmt.Errorf("chunk %03d: %w", chunkNum, err)
 		}
@@ -104,17 +105,25 @@ func (t *Transcriber) transcribeFile(ctx context.Context, audioPath string, lang
 
 // transcribeChunk transcribes one chunk and logs its start, duration, and outcome.
 // prefix (e.g. "mic") is prepended to log lines; empty means no prefix.
-func (t *Transcriber) transcribeChunk(ctx context.Context, path, language, prefix string, n, total int) (*stt.Result, error) {
+// The result is cached at cachePath and reused on later runs if the provider,
+// language, and source file size still match.
+func (t *Transcriber) transcribeChunk(ctx context.Context, path, language, prefix, cachePath string, n, total int) (*stt.Result, error) {
 	label := fmt.Sprintf("[%d/%d] %s", n, total, filepath.Base(path))
 	if prefix != "" {
 		label = fmt.Sprintf("%-4s %s", prefix, label)
 	}
 
-	size := ""
-	if info, err := os.Stat(path); err == nil {
-		size = fmt.Sprintf(" (%.1f MB)", float64(info.Size())/1024/1024)
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
 	}
-	fmt.Printf("  %s%s started\n", label, size)
+	key := cacheKey{provider: t.cfg.STTProvider, language: language, sourceSize: info.Size()}
+	if cached := loadChunkCache(cachePath, key); cached != nil {
+		fmt.Printf("  %s cached (%d segments)\n", label, len(cached.Segments))
+		return cached, nil
+	}
+
+	fmt.Printf("  %s (%.1f MB) started\n", label, float64(info.Size())/1024/1024)
 
 	started := time.Now()
 	result, err := t.transcribeFile(ctx, path, language)
@@ -124,6 +133,9 @@ func (t *Transcriber) transcribeChunk(ctx context.Context, path, language, prefi
 		return nil, err
 	}
 	fmt.Printf("  %s done in %s (%d segments)\n", label, elapsed, len(result.Segments))
+	if err := saveChunkCache(cachePath, key, result); err != nil {
+		fmt.Printf("  %s warning: could not cache result: %v\n", label, err)
+	}
 	return result, nil
 }
 
@@ -214,7 +226,8 @@ func (t *Transcriber) TranscribeChannel(ctx context.Context, audioPath, lang, ou
 	for i, chunk := range chunks {
 		chunkNum := i + 1
 		offset := float64(i) * converter.SegmentTime
-		result, err := t.transcribeChunk(ctx, chunk, lang, channel, chunkNum, len(chunks))
+		cachePath := filepath.Join(filepath.Dir(outputPath), "chunks", fmt.Sprintf("%s-%03d.yaml", channel, chunkNum))
+		result, err := t.transcribeChunk(ctx, chunk, lang, channel, cachePath, chunkNum, len(chunks))
 		if err != nil {
 			return fmt.Errorf("chunk %03d: %w", chunkNum, err)
 		}

@@ -78,6 +78,11 @@ func (m *MeetingDir) TranscriptPath() string {
 	return filepath.Join(m.TranscriptDir(), "transcript.txt")
 }
 
+// ChunkCacheDir holds per-chunk transcription results used to resume interrupted runs.
+func (m *MeetingDir) ChunkCacheDir() string {
+	return filepath.Join(m.TranscriptDir(), "chunks")
+}
+
 func (m *MeetingDir) TranscriptMicPath() string {
 	return filepath.Join(m.TranscriptDir(), "transcript_mic.yaml")
 }

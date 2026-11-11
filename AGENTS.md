@@ -62,6 +62,8 @@ YYYY-MM-DD-HH-MM-SS--meeting-name/
     transcript.txt
     transcript_mic.yaml
     transcript_sys.yaml
+    chunks/
+      record-001.yaml   # or mic-001.yaml / sys-001.yaml in dual-channel mode
 ```
 
 Notes:
@@ -87,6 +89,9 @@ internal/transcriber/ meeting transcription orchestration, dual-channel merge lo
 - `meeting.Detect()` checks for `source/`, not a top-level media file.
 - Source selection (`converter.buildInputArgs`): `mic.mp3` + `sys.mp3` win; otherwise exactly one
   media file in `source/` is required. `--dual-channel` fails fast without `mic.mp3` + `sys.mp3`.
+- Every transcribed chunk is cached in `transcript/chunks/` (`transcriber/cache.go`), keyed by
+  provider + language + source chunk size; reruns skip cached chunks. `tran transcript --fresh`
+  clears the cache and `transcript_mic/sys.yaml`.
 - Mixed-audio chunking uses 192 kbps mono MP3 segments with `converter.SegmentTime == 963`.
 - Cloud providers (`openai`, `groq`) re-encode files over the upload limit to a temporary 64 kbps / 16 kHz mono MP3 before upload.
 - `STT_PROVIDER` has no default; `stt.NewProvider` fails fast when running `transcript` or `process` (transcription step) if unset or unknown. `rec`, `soundmix`, and `devices list` do not require STT config.
