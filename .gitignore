@@ -11,3 +11,4 @@ integration-test/assets/meeting/transcript/
 
 # Go
 *.test
+dist/
