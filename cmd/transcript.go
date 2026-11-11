@@ -45,7 +45,14 @@ var transcriptCmd = &cobra.Command{
 
 		dualChannel, _ := cmd.Flags().GetBool("dual-channel")
 
-		fmt.Println("Transcribing...")
+		if fresh, _ := cmd.Flags().GetBool("fresh"); fresh {
+			for _, p := range []string{m.ChunkCacheDir(), m.TranscriptMicPath(), m.TranscriptSysPath()} {
+				if err := os.RemoveAll(p); err != nil {
+					return fmt.Errorf("clear cached results: %w", err)
+				}
+			}
+		}
+
 		var transcriptErr error
 		if dualChannel {
 			transcriptErr = trans.TranscribeMeetingDualChannel(ctx, m, lang)
@@ -69,5 +76,6 @@ var transcriptCmd = &cobra.Command{
 func init() {
 	transcriptCmd.Flags().StringP("lang", "l", "en", "transcription language: ISO 639 code (2 or 3 letters, e.g. en, eng, pol) or auto")
 	transcriptCmd.Flags().BoolP("dual-channel", "d", false, "Transcribe mic and sys channels separately with Us/Them speaker labels")
+	transcriptCmd.Flags().Bool("fresh", false, "Ignore cached chunk results and per-channel transcripts; transcribe everything again")
 	rootCmd.AddCommand(transcriptCmd)
 }

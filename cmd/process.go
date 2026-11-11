@@ -52,6 +52,7 @@ var processCmd = &cobra.Command{
 				fmt.Print("Creating chunks... ")
 				micDB, _ := cmd.Flags().GetFloat64("mic-volume")
 				sysDB, _ := cmd.Flags().GetFloat64("sys-volume")
+				warnVolumeIgnored(m, micDB, sysDB)
 				_, err := conv.Convert(ctx, m, converter.Options{
 					MicVolumeDB: micDB,
 					SysVolumeDB: sysDB,
@@ -69,7 +70,6 @@ var processCmd = &cobra.Command{
 			if err := ensureTranscriber(); err != nil {
 				return err
 			}
-			fmt.Println("Transcribing...")
 			var transcriptErr error
 			if dualChannel {
 				transcriptErr = trans.TranscribeMeetingDualChannel(ctx, m, lang)

@@ -5,6 +5,7 @@ Go CLI for meeting-centric recording and transcription.
 Supports two processing pipelines:
 
 - mixed pipeline: `soundmix` combines mic + system audio into `mix/record-*.mp3`, then `transcript` produces a chunked transcript
+- single-source pipeline: an existing recording (one audio/video file in `source/`, e.g. a Zoom export) is chunked by `soundmix` and transcribed the same way
 - dual-channel pipeline: `transcript --dual-channel` transcribes `source/mic.mp3` and `source/sys.mp3` separately, then merges them into a single speaker-labelled transcript
 
 ## Install
@@ -55,6 +56,7 @@ OPENAI_API_KEY=sk-...
     transcript.txt
     transcript_mic.yaml   dual-channel intermediate
     transcript_sys.yaml   dual-channel intermediate
+    chunks/               per-chunk results cache (resume after interruption)
 ```
 
 `mix/` is only used by the mixed pipeline. The dual-channel pipeline reads directly
@@ -72,11 +74,29 @@ Stop with **Ctrl+C** — ffmpeg receives SIGINT and flushes all outputs cleanly.
 tran rec "HR interview with Alena"
 ```
 
+### `tran init`
+
+Turns the current directory into a meeting directory (creates `source/`, `mix/`,
+`transcript/`; existing files are left alone). Use it for recordings made
+without `tran rec`:
+
+```
+mkdir 2026-03-14--client-sync && cd 2026-03-14--client-sync
+tran init
+cp ~/Downloads/zoom-recording.mp4 source/
+tran process
+```
+
 ### `tran soundmix`
 
 Run from the meeting directory. Reads `source/mic.mp3` and `source/sys.mp3`,
 mixes them, and segments the result into `mix/record-NNN.mp3` chunks
 (≤ 23 MB each, sized for the Whisper API 25 MB limit).
+
+If `mic.mp3` + `sys.mp3` are not both present, the audio track of the single
+audio/video file in `source/` (any name; mp4, mkv, mov, webm, mp3, m4a, wav, …)
+is used instead. Volume flags are ignored in that case. Zero or several media
+files in `source/` is an error.
 
 ```
 tran soundmix                        # flat mix, no adjustments
@@ -100,6 +120,13 @@ With `--dual-channel` / `-d`, skips `mix/` entirely: `source/mic.mp3` and
 `source/sys.mp3` are segmented separately, transcribed independently, written to
 `transcript/transcript_mic.yaml` and `transcript/transcript_sys.yaml`, then
 merged into `transcript/transcript.txt` with `Us` / `Them` speaker labels.
+
+Each chunk's result is saved right away to `transcript/chunks/`
+(`record-NNN.yaml`, or `mic-NNN.yaml` / `sys-NNN.yaml` in dual-channel mode).
+If a run is interrupted (network error, rate limit, Ctrl+C), the next run reuses
+finished chunks and only transcribes the rest. A cached chunk is redone when the
+provider, language, or source chunk size changes. `--fresh` clears the cache
+and the per-channel YAML files and transcribes everything again.
 
 Files larger than 25 MB are automatically re-compressed to a 64 kbps / 16 kHz
 mono temp file before upload.
@@ -125,7 +152,12 @@ Default pipeline:
 
 `source/mic.mp3` + `source/sys.mp3` → `soundmix` → `mix/record-NNN.mp3` → `transcript`
 
-Dual-channel pipeline:
+Single-source pipeline:
+
+`source/<recording>` → `soundmix` → `mix/record-NNN.mp3` → `transcript`
+
+Dual-channel pipeline (requires `mic.mp3` + `sys.mp3`; not available for a
+single recording):
 
 `source/mic.mp3` + `source/sys.mp3` → `transcript --dual-channel`
 

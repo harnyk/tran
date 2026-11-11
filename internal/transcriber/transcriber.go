@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/text/language"
@@ -48,11 +49,15 @@ func (t *Transcriber) TranscribeMeeting(ctx context.Context, m *meeting.MeetingD
 		return fmt.Errorf("no MP3 files found — run 'tran mp3' first")
 	}
 
+	fmt.Printf("Transcribing %d chunk(s) with %s...\n", len(mp3s), t.cfg.STTProvider)
+	started := time.Now()
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "---\nmeeting: %s\n---\n\n", filepath.Base(m.Path))
 	for i, path := range mp3s {
 		chunkNum := i + 1
-		result, err := t.transcribeFile(ctx, path, apiLanguage)
+		cachePath := filepath.Join(m.ChunkCacheDir(), strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))+".yaml")
+		result, err := t.transcribeChunk(ctx, path, apiLanguage, "", cachePath, chunkNum, len(mp3s))
 		if err != nil {
 			return fmt.Errorf("chunk %03d: %w", chunkNum, err)
 		}
@@ -65,6 +70,8 @@ func (t *Transcriber) TranscribeMeeting(ctx context.Context, m *meeting.MeetingD
 			fmt.Fprintf(&sb, "[%s] %s\n", format.Timestamp(seg.Start), strings.TrimSpace(seg.Text))
 		}
 	}
+
+	fmt.Printf("Transcribed %d chunk(s) in %s\n", len(mp3s), formatElapsed(time.Since(started)))
 
 	if err := os.MkdirAll(m.TranscriptDir(), 0755); err != nil {
 		return err
@@ -94,6 +101,50 @@ func (t *Transcriber) transcribeFile(ctx context.Context, audioPath string, lang
 		return nil, fmt.Errorf("no segments in transcription response")
 	}
 	return result, nil
+}
+
+// transcribeChunk transcribes one chunk and logs its start, duration, and outcome.
+// prefix (e.g. "mic") is prepended to log lines; empty means no prefix.
+// The result is cached at cachePath and reused on later runs if the provider,
+// language, and source file size still match.
+func (t *Transcriber) transcribeChunk(ctx context.Context, path, language, prefix, cachePath string, n, total int) (*stt.Result, error) {
+	label := fmt.Sprintf("[%d/%d] %s", n, total, filepath.Base(path))
+	if prefix != "" {
+		label = fmt.Sprintf("%-4s %s", prefix, label)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	key := cacheKey{provider: t.cfg.STTProvider, language: language, sourceSize: info.Size()}
+	if cached := loadChunkCache(cachePath, key); cached != nil {
+		fmt.Printf("  %s cached (%d segments)\n", label, len(cached.Segments))
+		return cached, nil
+	}
+
+	fmt.Printf("  %s (%.1f MB) started\n", label, float64(info.Size())/1024/1024)
+
+	started := time.Now()
+	result, err := t.transcribeFile(ctx, path, language)
+	elapsed := formatElapsed(time.Since(started))
+	if err != nil {
+		fmt.Printf("  %s failed after %s\n", label, elapsed)
+		return nil, err
+	}
+	fmt.Printf("  %s done in %s (%d segments)\n", label, elapsed, len(result.Segments))
+	if err := saveChunkCache(cachePath, key, result); err != nil {
+		fmt.Printf("  %s warning: could not cache result: %v\n", label, err)
+	}
+	return result, nil
+}
+
+// formatElapsed rounds a duration for human-readable logs (e.g. 41.3s, 2m4s).
+func formatElapsed(d time.Duration) string {
+	if d < time.Minute {
+		return d.Round(100 * time.Millisecond).String()
+	}
+	return d.Round(time.Second).String()
 }
 
 // channelTranscript is the YAML schema for intermediate per-channel transcript files.
@@ -154,11 +205,14 @@ func (t *Transcriber) segmentToTempDir(ctx context.Context, audioPath string) (c
 // Offset is computed as float64(chunkIndex) * SegmentTime — no dependency on Whisper's
 // reported duration, which can be unreliable for silent or very short chunks.
 func (t *Transcriber) TranscribeChannel(ctx context.Context, audioPath, lang, outputPath, channel, meetingName string) error {
+	fmt.Printf("  %-4s splitting %s into chunks...\n", channel, filepath.Base(audioPath))
+	segStarted := time.Now()
 	chunks, tempDir, err := t.segmentToTempDir(ctx, audioPath)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tempDir)
+	fmt.Printf("  %-4s %d chunk(s) ready in %s\n", channel, len(chunks), formatElapsed(time.Since(segStarted)))
 
 	if len(chunks) == 0 {
 		return fmt.Errorf("no segments produced from %s", audioPath)
@@ -172,9 +226,8 @@ func (t *Transcriber) TranscribeChannel(ctx context.Context, audioPath, lang, ou
 	for i, chunk := range chunks {
 		chunkNum := i + 1
 		offset := float64(i) * converter.SegmentTime
-		fmt.Printf("  %-4s chunk %d/%d\n", channel, chunkNum, len(chunks))
-
-		result, err := t.transcribeFile(ctx, chunk, lang)
+		cachePath := filepath.Join(filepath.Dir(outputPath), "chunks", fmt.Sprintf("%s-%03d.yaml", channel, chunkNum))
+		result, err := t.transcribeChunk(ctx, chunk, lang, channel, cachePath, chunkNum, len(chunks))
 		if err != nil {
 			return fmt.Errorf("chunk %03d: %w", chunkNum, err)
 		}
@@ -268,19 +321,34 @@ func (t *Transcriber) TranscribeMeetingDualChannel(ctx context.Context, m *meeti
 	}
 
 	meetingName := filepath.Base(m.Path)
+	started := time.Now()
 
-	if _, err := os.Stat(m.TranscriptMicPath()); os.IsNotExist(err) {
+	if !m.HasDualSources() {
+		return fmt.Errorf("dual-channel mode needs source/mic.mp3 and source/sys.mp3; a single recording cannot be split into Us/Them — run without --dual-channel")
+	}
+
+	fmt.Printf("Transcribing mic and sys channels with %s...\n", t.cfg.STTProvider)
+
+	if _, err := os.Stat(m.TranscriptMicPath()); err == nil {
+		fmt.Printf("  mic  reusing existing %s\n", filepath.Base(m.TranscriptMicPath()))
+	} else if os.IsNotExist(err) {
 		if err := t.TranscribeChannel(ctx, m.MicMP3Path(), apiLanguage, m.TranscriptMicPath(), "mic", meetingName); err != nil {
 			return fmt.Errorf("mic channel: %w", err)
 		}
 	}
 
-	if _, err := os.Stat(m.TranscriptSysPath()); os.IsNotExist(err) {
+	if _, err := os.Stat(m.TranscriptSysPath()); err == nil {
+		fmt.Printf("  sys  reusing existing %s\n", filepath.Base(m.TranscriptSysPath()))
+	} else if os.IsNotExist(err) {
 		if err := t.TranscribeChannel(ctx, m.SysMP3Path(), apiLanguage, m.TranscriptSysPath(), "sys", meetingName); err != nil {
 			return fmt.Errorf("sys channel: %w", err)
 		}
 	}
 
 	fmt.Println("  merging channels")
-	return t.MergeChannelTranscripts(m.TranscriptMicPath(), m.TranscriptSysPath(), m.TranscriptPath(), meetingName)
+	if err := t.MergeChannelTranscripts(m.TranscriptMicPath(), m.TranscriptSysPath(), m.TranscriptPath(), meetingName); err != nil {
+		return err
+	}
+	fmt.Printf("Transcribed both channels in %s\n", formatElapsed(time.Since(started)))
+	return nil
 }

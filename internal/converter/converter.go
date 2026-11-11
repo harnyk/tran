@@ -56,18 +56,42 @@ func buildFilterComplex(opts Options) string {
 	return strings.Join(filters, ";")
 }
 
-// Convert mixes mic and sys audio (with optional volume adjustments) and
-// segments the result into 192 kbps mono MP3 chunks in mix/.
+// buildInputArgs returns the ffmpeg input and mapping arguments.
+// With both mic.mp3 and sys.mp3 present they are mixed (volume options apply);
+// otherwise the audio of the single media file in source/ is used as is.
+func buildInputArgs(m *meeting.MeetingDir, opts Options) ([]string, error) {
+	if m.HasDualSources() {
+		return []string{
+			"-i", m.MicMP3Path(),
+			"-i", m.SysMP3Path(),
+			"-filter_complex", buildFilterComplex(opts),
+			"-map", "[mix]",
+		}, nil
+	}
+	src, err := m.SingleSource()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"-i", src,
+		"-map", "0:a:0",
+		"-vn",
+	}, nil
+}
+
+// Convert prepares meeting audio and segments it into 192 kbps mono MP3
+// chunks in mix/. See buildInputArgs for how the source is chosen.
 func (c *Converter) Convert(ctx context.Context, m *meeting.MeetingDir, opts Options) (*Result, error) {
+	inputArgs, err := buildInputArgs(m, opts)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := os.MkdirAll(m.MixDir(), 0755); err != nil {
 		return nil, fmt.Errorf("create mix dir: %w", err)
 	}
 
-	args := []string{
-		"-i", m.MicMP3Path(),
-		"-i", m.SysMP3Path(),
-		"-filter_complex", buildFilterComplex(opts),
-		"-map", "[mix]",
+	args := append(inputArgs,
 		"-ar", "44100",
 		"-ac", "1",
 		"-b:a", "192k",
@@ -76,7 +100,7 @@ func (c *Converter) Convert(ctx context.Context, m *meeting.MeetingDir, opts Opt
 		"-segment_start_number", "1",
 		"-y",
 		m.MixMP3Pattern(),
-	}
+	)
 
 	cmd := exec.CommandContext(ctx, c.cfg.FFmpegBin, args...)
 	var ffmpegOutput bytes.Buffer

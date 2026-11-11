@@ -2,26 +2,32 @@ version: '3'
 
 tasks:
   build:
+    desc: "Build the tran binary into ./tran"
     cmds:
       - go build -o tran .
 
   install:
+    desc: "Install tran globally via go install (into $(go env GOPATH)/bin)"
     cmds:
       - go install .
 
   run:
+    desc: "Run tran from source (pass args after --, e.g. task run -- process)"
     cmds:
       - go run . {{.CLI_ARGS}}
 
   lint:
+    desc: "Run go vet"
     cmds:
       - go vet ./...
 
   uninstall:
+    desc: "Remove the globally installed tran binary"
     cmds:
       - rm -f $(go env GOPATH)/bin/tran
 
   clean:
+    desc: "Remove the local ./tran binary"
     cmds:
       - rm -f tran
 
