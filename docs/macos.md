@@ -42,8 +42,7 @@ browser, macOS Gatekeeper blocks it ("cannot be opened because the developer
 cannot be verified"). Removing the quarantine attribute with `xattr` as shown
 above fixes that. Archives fetched with `curl` / `wget` are not quarantined.
 
-Alternatively, build from source: `go install github.com/harnyk/tran@master`
-(not `@latest`: the Go module path has no `/v2` suffix, so `@latest` resolves to v1.1.0).
+Alternatively, build from source: `go install github.com/harnyk/tran@latest`.
 
 ---
 
