@@ -57,3 +57,8 @@ func ensureTranscriber() error {
 	}
 	return nil
 }
+
+// SetVersion sets the version reported by `tran --version`.
+func SetVersion(version, commit, date string) {
+	rootCmd.Version = fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)
+}

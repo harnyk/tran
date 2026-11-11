@@ -24,6 +24,29 @@ fit for macOS recordings: mic and system audio are already separate files.
 
 ---
 
+## Installing tran
+
+Download the archive for your Mac from
+[GitHub Releases](https://github.com/harnyk/tran/releases/latest):
+`tran_Darwin_arm64.tar.gz` (Apple Silicon) or `tran_Darwin_x86_64.tar.gz` (Intel).
+
+```bash
+tar -xzf tran_Darwin_arm64.tar.gz
+xattr -d com.apple.quarantine tran   # see note below
+mv tran /usr/local/bin/              # or any directory on $PATH
+tran --version
+```
+
+The binary is not signed or notarized. If the archive was downloaded with a
+browser, macOS Gatekeeper blocks it ("cannot be opened because the developer
+cannot be verified"). Removing the quarantine attribute with `xattr` as shown
+above fixes that. Archives fetched with `curl` / `wget` are not quarantined.
+
+Alternatively, build from source: `go install github.com/harnyk/tran@master`
+(not `@latest`: the Go module path has no `/v2` suffix, so `@latest` resolves to v1.1.0).
+
+---
+
 ## Prerequisites
 
 ### 1. macOS 12.3+
