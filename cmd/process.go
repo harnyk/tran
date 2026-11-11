@@ -70,7 +70,6 @@ var processCmd = &cobra.Command{
 			if err := ensureTranscriber(); err != nil {
 				return err
 			}
-			fmt.Println("Transcribing...")
 			var transcriptErr error
 			if dualChannel {
 				transcriptErr = trans.TranscribeMeetingDualChannel(ctx, m, lang)

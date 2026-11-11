@@ -45,7 +45,6 @@ var transcriptCmd = &cobra.Command{
 
 		dualChannel, _ := cmd.Flags().GetBool("dual-channel")
 
-		fmt.Println("Transcribing...")
 		var transcriptErr error
 		if dualChannel {
 			transcriptErr = trans.TranscribeMeetingDualChannel(ctx, m, lang)
